@@ -1,19 +1,6 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
-import App from './App.jsx';
-import { ProfileProvider } from './context/ProfileContext.jsx';
-import ErrorBoundary from './components/ErrorBoundary.jsx';
-import './styles/theme.css';
-
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <BrowserRouter>
-      <ErrorBoundary>
-        <ProfileProvider>
-          <App />
-        </ProfileProvider>
-      </ErrorBoundary>
-    </BrowserRouter>
-  </React.StrictMode>
-);
+import React from "react";
+import { createRoot } from "react-dom/client";
+import "./css/base.css";
+import "./css/styles.css";
+import App from "./App.jsx";
+createRoot(document.getElementById("root")).render(<App />);
