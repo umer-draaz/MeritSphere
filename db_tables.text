@@ -1,0 +1,443 @@
+CREATE TABLE students (
+    student_id BIGSERIAL PRIMARY KEY,
+    full_name VARCHAR(150) NOT NULL,
+    email VARCHAR(150) NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    phone VARCHAR(20),
+    city VARCHAR(100),
+    province VARCHAR(100),
+    latitude NUMERIC(9,6),
+    longitude NUMERIC(9,6),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT chk_student_latitude
+        CHECK (latitude IS NULL OR latitude BETWEEN -90 AND 90),
+
+    CONSTRAINT chk_student_longitude
+        CHECK (longitude IS NULL OR longitude BETWEEN -180 AND 180),
+
+    CONSTRAINT chk_student_coordinates
+        CHECK ((latitude IS NULL) = (longitude IS NULL))
+);
+
+
+CREATE TABLE student_marks (
+    mark_id BIGSERIAL PRIMARY KEY,
+    student_id BIGINT NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+    qualification_level VARCHAR(30) NOT NULL,
+    board VARCHAR(100),
+    group_name VARCHAR(100),
+    obtained_marks NUMERIC(8,2) NOT NULL,
+    total_marks NUMERIC(8,2) NOT NULL,
+    percentage NUMERIC(5,2)
+        GENERATED ALWAYS AS (
+            ROUND((obtained_marks / total_marks) * 100, 2)
+        ) STORED,
+    passing_year SMALLINT,
+
+    CONSTRAINT chk_obtained_marks
+        CHECK (obtained_marks >= 0),
+
+    CONSTRAINT chk_total_marks
+        CHECK (total_marks > 0),
+
+    CONSTRAINT chk_marks_limit
+        CHECK (obtained_marks <= total_marks),
+
+    CONSTRAINT uq_student_qualification
+        UNIQUE (student_id, qualification_level)
+);
+
+
+CREATE TABLE student_preferences (
+    preference_id BIGSERIAL PRIMARY KEY,
+    student_id BIGINT NOT NULL UNIQUE
+        REFERENCES students(student_id) ON DELETE CASCADE,
+    preferred_city VARCHAR(100),
+    preferred_degree VARCHAR(100),
+    entry_test VARCHAR(100),
+    max_fee_per_semester NUMERIC(12,2),
+    wants_hostel BOOLEAN DEFAULT FALSE,
+    wants_scholarship BOOLEAN DEFAULT FALSE,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+CREATE TABLE universities (
+    university_id BIGSERIAL PRIMARY KEY,
+    university_name VARCHAR(200) NOT NULL UNIQUE,
+    university_type VARCHAR(50),
+    website VARCHAR(255),
+    city VARCHAR(100),
+    province VARCHAR(100),
+    latitude NUMERIC(9,6),
+    longitude NUMERIC(9,6),
+    description TEXT,
+
+    CONSTRAINT chk_university_coordinates
+        CHECK (
+            (latitude IS NULL AND longitude IS NULL)
+            OR
+            (latitude BETWEEN -90 AND 90
+             AND longitude BETWEEN -180 AND 180)
+        )
+);
+
+
+CREATE TABLE campuses (
+    campus_id BIGSERIAL PRIMARY KEY,
+    university_id BIGINT NOT NULL
+        REFERENCES universities(university_id) ON DELETE CASCADE,
+    campus_name VARCHAR(150) NOT NULL,
+    address TEXT,
+    city VARCHAR(100),
+    province VARCHAR(100),
+    latitude NUMERIC(9,6),
+    longitude NUMERIC(9,6),
+
+    CONSTRAINT uq_campus_university
+        UNIQUE (campus_id, university_id),
+
+    CONSTRAINT uq_campus_name
+        UNIQUE (university_id, campus_name),
+
+    CONSTRAINT chk_campus_coordinates
+        CHECK (
+            (latitude IS NULL AND longitude IS NULL)
+            OR
+            (latitude BETWEEN -90 AND 90
+             AND longitude BETWEEN -180 AND 180)
+        )
+);
+
+
+CREATE TABLE programs (
+    program_id BIGSERIAL PRIMARY KEY,
+    university_id BIGINT NOT NULL
+        REFERENCES universities(university_id) ON DELETE CASCADE,
+    campus_id BIGINT,
+    program_name VARCHAR(150) NOT NULL,
+    degree_level VARCHAR(50),
+    department VARCHAR(150),
+    duration_years NUMERIC(3,1),
+    is_active BOOLEAN DEFAULT TRUE,
+
+    CONSTRAINT uq_program_university
+        UNIQUE (program_id, university_id),
+
+    CONSTRAINT fk_program_campus
+        FOREIGN KEY (campus_id, university_id)
+        REFERENCES campuses(campus_id, university_id),
+
+    CONSTRAINT uq_program_campus_name
+        UNIQUE (university_id, campus_id, program_name)
+);
+
+
+CREATE TABLE eligibility_rules (
+    rule_id BIGSERIAL PRIMARY KEY,
+    program_id BIGINT NOT NULL
+        REFERENCES programs(program_id) ON DELETE CASCADE,
+    qualification_group VARCHAR(100),
+    minimum_percentage NUMERIC(5,2),
+    required_subjects TEXT,
+    entry_test_required BOOLEAN DEFAULT FALSE,
+    minimum_test_score NUMERIC(5,2),
+    additional_requirements TEXT,
+
+    CONSTRAINT chk_minimum_percentage
+        CHECK (
+            minimum_percentage IS NULL
+            OR minimum_percentage BETWEEN 0 AND 100
+        ),
+
+    CONSTRAINT chk_minimum_test_score
+        CHECK (
+            minimum_test_score IS NULL
+            OR minimum_test_score BETWEEN 0 AND 100
+        )
+);
+
+
+CREATE TABLE merit_formulas (
+    formula_id BIGSERIAL PRIMARY KEY,
+    university_id BIGINT REFERENCES universities(university_id),
+    program_id BIGINT REFERENCES programs(program_id),
+    admission_year SMALLINT NOT NULL,
+    formula_name VARCHAR(100) NOT NULL,
+    matric_weight NUMERIC(5,2) DEFAULT 0,
+    intermediate_weight NUMERIC(5,2) DEFAULT 0,
+    entry_test_weight NUMERIC(5,2) DEFAULT 0,
+    other_weight NUMERIC(5,2) DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT chk_formula_weights
+        CHECK (
+            matric_weight >= 0
+            AND intermediate_weight >= 0
+            AND entry_test_weight >= 0
+            AND other_weight >= 0
+            AND matric_weight + intermediate_weight
+                + entry_test_weight + other_weight = 100
+        ),
+
+    CONSTRAINT uq_merit_formula
+        UNIQUE NULLS NOT DISTINCT
+        (university_id, program_id, admission_year, formula_name)
+);
+
+
+CREATE TABLE merit_history (
+    merit_history_id BIGSERIAL PRIMARY KEY,
+    program_id BIGINT NOT NULL
+        REFERENCES programs(program_id) ON DELETE CASCADE,
+    admission_year SMALLINT NOT NULL,
+    quota_category VARCHAR(100),
+    seat_type VARCHAR(100),
+    closing_merit NUMERIC(5,2) NOT NULL,
+    source_url TEXT,
+    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT chk_closing_merit
+        CHECK (closing_merit BETWEEN 0 AND 100),
+
+    CONSTRAINT uq_merit_history
+        UNIQUE NULLS NOT DISTINCT
+        (program_id, admission_year, quota_category, seat_type)
+);
+
+
+CREATE TABLE program_fees (
+    fee_id BIGSERIAL PRIMARY KEY,
+    program_id BIGINT NOT NULL
+        REFERENCES programs(program_id) ON DELETE CASCADE,
+    admission_year SMALLINT NOT NULL,
+    semester_fee NUMERIC(12,2),
+    admission_fee NUMERIC(12,2),
+    other_charges NUMERIC(12,2) DEFAULT 0,
+    currency VARCHAR(10) DEFAULT 'PKR',
+
+    CONSTRAINT chk_program_fees
+        CHECK (
+            (semester_fee IS NULL OR semester_fee >= 0)
+            AND (admission_fee IS NULL OR admission_fee >= 0)
+            AND other_charges >= 0
+        ),
+
+    CONSTRAINT uq_program_fee_year
+        UNIQUE (program_id, admission_year)
+);
+
+
+CREATE TABLE scholarships (
+    scholarship_id BIGSERIAL PRIMARY KEY,
+    university_id BIGINT NOT NULL
+        REFERENCES universities(university_id) ON DELETE CASCADE,
+    program_id BIGINT,
+    scholarship_name VARCHAR(150) NOT NULL,
+    eligibility_criteria TEXT,
+    scholarship_amount NUMERIC(12,2),
+    percentage_coverage NUMERIC(5,2),
+    application_deadline DATE,
+    is_active BOOLEAN DEFAULT TRUE,
+
+    CONSTRAINT fk_scholarship_program
+        FOREIGN KEY (program_id, university_id)
+        REFERENCES programs(program_id, university_id),
+
+    CONSTRAINT chk_scholarship_amount
+        CHECK (scholarship_amount IS NULL OR scholarship_amount >= 0),
+
+    CONSTRAINT chk_scholarship_percentage
+        CHECK (
+            percentage_coverage IS NULL
+            OR percentage_coverage BETWEEN 0 AND 100
+        )
+);
+
+
+CREATE TABLE search_queries (
+    query_id BIGSERIAL PRIMARY KEY,
+    student_id BIGINT
+        REFERENCES students(student_id) ON DELETE SET NULL,
+    query_text TEXT,
+    filters JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+CREATE TABLE recommendations (
+    recommendation_id BIGSERIAL PRIMARY KEY,
+    student_id BIGINT NOT NULL
+        REFERENCES students(student_id) ON DELETE CASCADE,
+    program_id BIGINT NOT NULL
+        REFERENCES programs(program_id) ON DELETE CASCADE,
+    admission_year SMALLINT NOT NULL,
+    aggregate_score NUMERIC(5,2),
+    chance_percentage NUMERIC(5,2),
+    chance_category VARCHAR(50) NOT NULL,
+    explanation TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT chk_recommendation_aggregate
+        CHECK (
+            aggregate_score IS NULL
+            OR aggregate_score BETWEEN 0 AND 100
+        ),
+
+    CONSTRAINT chk_recommendation_chance
+        CHECK (
+            chance_percentage IS NULL
+            OR chance_percentage BETWEEN 0 AND 100
+        )
+);
+
+
+CREATE TABLE shortlists (
+    shortlist_id BIGSERIAL PRIMARY KEY,
+    student_id BIGINT NOT NULL
+        REFERENCES students(student_id) ON DELETE CASCADE,
+    program_id BIGINT NOT NULL
+        REFERENCES programs(program_id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT uq_student_shortlist
+        UNIQUE (student_id, program_id)
+);
+
+
+CREATE TABLE comparisons (
+    comparison_id BIGSERIAL PRIMARY KEY,
+    student_id BIGINT NOT NULL
+        REFERENCES students(student_id) ON DELETE CASCADE,
+    comparison_name VARCHAR(150),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+CREATE TABLE comparison_items (
+    comparison_item_id BIGSERIAL PRIMARY KEY,
+    comparison_id BIGINT NOT NULL
+        REFERENCES comparisons(comparison_id) ON DELETE CASCADE,
+    program_id BIGINT NOT NULL
+        REFERENCES programs(program_id) ON DELETE CASCADE,
+    position SMALLINT,
+
+    CONSTRAINT uq_comparison_program
+        UNIQUE (comparison_id, program_id),
+
+    CONSTRAINT uq_comparison_position
+        UNIQUE (comparison_id, position),
+
+    CONSTRAINT chk_comparison_position
+        CHECK (position IS NULL OR position BETWEEN 1 AND 5)
+);
+
+
+CREATE TABLE admins (
+    admin_id BIGSERIAL PRIMARY KEY,
+    full_name VARCHAR(150) NOT NULL,
+    email VARCHAR(150) NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role VARCHAR(50) DEFAULT 'ADMIN',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+CREATE TABLE audit_logs (
+    log_id BIGSERIAL PRIMARY KEY,
+    admin_id BIGINT
+        REFERENCES admins(admin_id) ON DELETE SET NULL,
+    action VARCHAR(100) NOT NULL,
+    entity_type VARCHAR(100),
+    entity_id BIGINT,
+    details JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+-- University and campus searches
+CREATE INDEX idx_universities_city
+ON universities(city);
+
+CREATE INDEX idx_universities_province
+ON universities(province);
+
+CREATE INDEX idx_campuses_university
+ON campuses(university_id);
+
+CREATE INDEX idx_campuses_city
+ON campuses(city);
+
+
+-- Program searches
+CREATE INDEX idx_programs_campus
+ON programs(campus_id);
+
+CREATE INDEX idx_programs_degree
+ON programs(degree_level);
+
+CREATE INDEX idx_programs_active
+ON programs(is_active);
+
+
+-- Eligibility and merit
+CREATE INDEX idx_eligibility_program
+ON eligibility_rules(program_id);
+
+CREATE INDEX idx_merit_formulas_program
+ON merit_formulas(program_id);
+
+CREATE INDEX idx_merit_history_program_year
+ON merit_history(program_id, admission_year DESC);
+
+
+-- Fee and scholarship searches
+CREATE INDEX idx_program_fees_program_year
+ON program_fees(program_id, admission_year);
+
+CREATE INDEX idx_scholarships_university
+ON scholarships(university_id);
+
+CREATE INDEX idx_scholarships_program
+ON scholarships(program_id);
+
+
+-- Student search history
+CREATE INDEX idx_search_queries_student_date
+ON search_queries(student_id, created_at DESC);
+
+
+-- Recommendations
+CREATE INDEX idx_recommendations_student_date
+ON recommendations(student_id, created_at DESC);
+
+CREATE INDEX idx_recommendations_program_year
+ON recommendations(program_id, admission_year);
+
+
+-- Shortlists
+CREATE INDEX idx_shortlists_program
+ON shortlists(program_id);
+
+
+-- Comparisons
+CREATE INDEX idx_comparisons_student_date
+ON comparisons(student_id, created_at DESC);
+
+CREATE INDEX idx_comparison_items_program
+ON comparison_items(program_id);
+
+
+-- Admin and audit records
+CREATE INDEX idx_audit_logs_admin_date
+ON audit_logs(admin_id, created_at DESC);
+
+CREATE INDEX idx_audit_logs_entity
+ON audit_logs(entity_type, entity_id);
+
+-- CONSTRAINT
+
+CONSTRAINT uq_program_campus_name
+    UNIQUE (university_id, campus_id, program_name)
+CONSTRAINT uq_program_campus_name
+    UNIQUE NULLS NOT DISTINCT (university_id, campus_id, program_name)
